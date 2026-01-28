@@ -1,0 +1,11 @@
+{
+  "manifest_version": 3,
+  "name": "Randomiser",
+  "version": "0.1.0",
+  "description": "Checks whether the current tab is on bambicloud.com.",
+  "action": {
+    "default_title": "Randomiser",
+    "default_popup": "src/popup/index.html"
+  },
+  "permissions": ["tabs"]
+}
