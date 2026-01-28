@@ -31,6 +31,30 @@ body {
   border-left: 4px solid transparent;
 }
 
+.primary {
+  margin-top: 12px;
+  width: 100%;
+  border: 0;
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: #111827;
+  color: white;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.error {
+  margin-top: 8px;
+  font-size: 12px;
+  color: #b22a2a;
+}
+
 .popup.on .status {
   border-left-color: #0b8f4d;
 }
