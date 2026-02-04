@@ -18,6 +18,26 @@ function normalizeTrackWeight(weight) {
   );
 }
 
+function normalizePlaylistTypeFlags({ isInduction, isAwakener, isHfo }) {
+  const normalizedIsInduction = Boolean(isInduction);
+  const normalizedIsAwakener = Boolean(isAwakener);
+  const normalizedIsHfo = Boolean(isHfo);
+
+  if (normalizedIsInduction) {
+    return { isInduction: true, isAwakener: false, isHfo: false };
+  }
+
+  if (normalizedIsAwakener) {
+    return { isInduction: false, isAwakener: true, isHfo: false };
+  }
+
+  if (normalizedIsHfo) {
+    return { isInduction: false, isAwakener: false, isHfo: true };
+  }
+
+  return { isInduction: false, isAwakener: false, isHfo: false };
+}
+
 function sanitizeSavedPlaylists(value) {
   if (!value || typeof value !== "object") {
     return {};
@@ -36,6 +56,11 @@ function sanitizeSavedPlaylists(value) {
       typeof playlist.loadedAt === "string"
         ? playlist.loadedAt
         : new Date().toISOString();
+    const playlistType = normalizePlaylistTypeFlags({
+      isInduction: playlist.isInduction,
+      isAwakener: playlist.isAwakener,
+      isHfo: playlist.isHfo
+    });
     let files = [];
     if (Array.isArray(playlist.tracks)) {
       files = playlist.tracks;
@@ -79,7 +104,15 @@ function sanitizeSavedPlaylists(value) {
       })
       .filter(Boolean);
 
-    sanitized[uuid] = { uuid, name, tracks, loadedAt };
+    sanitized[uuid] = {
+      uuid,
+      name,
+      tracks,
+      loadedAt,
+      isInduction: playlistType.isInduction,
+      isAwakener: playlistType.isAwakener,
+      isHfo: playlistType.isHfo
+    };
   });
 
   return sanitized;
@@ -180,7 +213,10 @@ class AppStore {
           ? firstPlaylist.name
           : "Untitled playlist",
       tracks,
-      loadedAt: new Date().toISOString()
+      loadedAt: new Date().toISOString(),
+      isInduction: false,
+      isAwakener: false,
+      isHfo: false
     };
   }
 
@@ -258,6 +294,23 @@ class AppStore {
     }
 
     track.weight = normalizeTrackWeight(nextWeight);
+    void this.persistPlaylistState();
+  }
+
+  setPlaylistTypeFlags(playlistUuid, { isInduction, isAwakener, isHfo }) {
+    const playlist = this.savedPlaylistsByUuid[playlistUuid];
+    if (!playlist) {
+      return;
+    }
+
+    const normalizedFlags = normalizePlaylistTypeFlags({
+      isInduction,
+      isAwakener,
+      isHfo
+    });
+    playlist.isInduction = normalizedFlags.isInduction;
+    playlist.isAwakener = normalizedFlags.isAwakener;
+    playlist.isHfo = normalizedFlags.isHfo;
     void this.persistPlaylistState();
   }
 
@@ -342,6 +395,15 @@ class AppStore {
             existingWeightsByTrackUuid[track.uuid] ?? MIN_TRACK_WEIGHT
           )
         }));
+
+        const existingFlags = normalizePlaylistTypeFlags({
+          isInduction: existingPlaylist.isInduction,
+          isAwakener: existingPlaylist.isAwakener,
+          isHfo: existingPlaylist.isHfo
+        });
+        normalizedPlaylist.isInduction = existingFlags.isInduction;
+        normalizedPlaylist.isAwakener = existingFlags.isAwakener;
+        normalizedPlaylist.isHfo = existingFlags.isHfo;
       }
 
       this.savedPlaylistsByUuid = {

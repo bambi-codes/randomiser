@@ -9,13 +9,14 @@ import {
   DialogContent,
   DialogContentText,
   DialogTitle,
+  FormControlLabel,
   Slider,
+  Switch,
   Typography
 } from "@mui/material";
 import { observer } from "mobx-react-lite";
 import React, { useEffect, useMemo, useState } from "react";
 import appStore from "../stores/app-store";
-import { toJS } from "mobx";
 
 function tokenPreview(token) {
   if (!token) {
@@ -59,13 +60,6 @@ const MainPage = observer(() => {
       }}
     >
       <Box sx={{ display: "flex", flexDirection: "column", gap: 1, flex: 1 }}>
-        <button
-          onClick={() => {
-            console.log(toJS(appStore));
-          }}
-        >
-          log store
-        </button>
         <Typography>User token: {tokenPreview(appStore.userToken)}</Typography>
         <Typography>Saved playlists: {appStore.savedPlaylistCount}</Typography>
 
@@ -100,14 +94,70 @@ const MainPage = observer(() => {
             </AccordionSummary>
             <AccordionDetails>
               <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                <Button
-                  color="error"
-                  variant="outlined"
-                  sx={{ alignSelf: "flex-start" }}
-                  onClick={() => setPlaylistPendingDeleteUuid(playlist.uuid)}
+                <Box
+                  sx={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    flexWrap: "wrap",
+                    gap: 1
+                  }}
                 >
-                  Remove playlist
-                </Button>
+                  <Button
+                    color="error"
+                    variant="outlined"
+                    onClick={() => setPlaylistPendingDeleteUuid(playlist.uuid)}
+                  >
+                    Remove playlist
+                  </Button>
+                  <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                    <FormControlLabel
+                      control={
+                        <Switch
+                          checked={Boolean(playlist.isInduction)}
+                          onChange={(_event, checked) => {
+                            appStore.setPlaylistTypeFlags(playlist.uuid, {
+                              isInduction: checked,
+                              isAwakener: false,
+                              isHfo: false
+                            });
+                          }}
+                        />
+                      }
+                      label="Induction"
+                    />
+                    <FormControlLabel
+                      control={
+                        <Switch
+                          checked={Boolean(playlist.isAwakener)}
+                          onChange={(_event, checked) => {
+                            appStore.setPlaylistTypeFlags(playlist.uuid, {
+                              isInduction: false,
+                              isAwakener: checked,
+                              isHfo: false
+                            });
+                          }}
+                        />
+                      }
+                      label="Awakener"
+                    />
+                    <FormControlLabel
+                      control={
+                        <Switch
+                          checked={Boolean(playlist.isHfo)}
+                          onChange={(_event, checked) => {
+                            appStore.setPlaylistTypeFlags(playlist.uuid, {
+                              isInduction: false,
+                              isAwakener: false,
+                              isHfo: checked
+                            });
+                          }}
+                        />
+                      }
+                      label="HFO"
+                    />
+                  </Box>
+                </Box>
 
                 {playlist.tracks.map((track) => (
                   <Box
