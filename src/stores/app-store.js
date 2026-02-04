@@ -6,6 +6,10 @@ class AppStore {
   constructor() {
     makeAutoObservable(this);
   }
+
+  setUserToken(token) {
+    this.userToken = token;
+  }
 }
 
 const appStore = new AppStore();
