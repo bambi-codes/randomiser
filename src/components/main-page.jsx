@@ -87,9 +87,16 @@ const MainPage = observer(() => {
                 }}
               >
                 <Typography>{playlist.name}</Typography>
-                <Typography color="text.secondary">
-                  Tracks: {playlist.tracks.length}
-                </Typography>
+                <Box sx={{ display: "flex", gap: 2 }}>
+                  {playlist.isHfo && (
+                    <Typography color="text.secondary">
+                      HFO: {Math.round((playlist.hfoValue ?? 0.5) * 100)}%
+                    </Typography>
+                  )}
+                  <Typography color="text.secondary">
+                    Tracks: {playlist.tracks.length}
+                  </Typography>
+                </Box>
               </Box>
             </AccordionSummary>
             <AccordionDetails>
@@ -158,6 +165,32 @@ const MainPage = observer(() => {
                     />
                   </Box>
                 </Box>
+
+                {playlist.isHfo && (
+                  <Box
+                    sx={{ display: "flex", flexDirection: "column", gap: 1 }}
+                  >
+                    <Typography color="text.secondary">
+                      HFO percentage inclusion:{" "}
+                      {Math.round((playlist.hfoValue ?? 0.5) * 100)}%
+                    </Typography>
+                    <Slider
+                      min={0}
+                      max={1}
+                      step={0.01}
+                      value={playlist.hfoValue ?? 0.5}
+                      valueLabelDisplay="auto"
+                      valueLabelFormat={(value) =>
+                        `${Math.round(value * 100)}%`
+                      }
+                      onChangeCommitted={(_event, value) => {
+                        if (typeof value === "number") {
+                          appStore.setPlaylistHfoValue(playlist.uuid, value);
+                        }
+                      }}
+                    />
+                  </Box>
+                )}
 
                 {playlist.tracks.map((track) => (
                   <Box

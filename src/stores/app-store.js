@@ -6,6 +6,9 @@ const PLAYLIST_PATH_REGEX =
   /^\/playlist\/([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})(?:\/|$)/;
 const MIN_TRACK_WEIGHT = 1;
 const MAX_TRACK_WEIGHT = 20;
+const DEFAULT_HFO_VALUE = 0.5;
+const MIN_HFO_VALUE = 0;
+const MAX_HFO_VALUE = 1;
 
 function normalizeTrackWeight(weight) {
   if (typeof weight !== "number" || Number.isNaN(weight)) {
@@ -16,6 +19,19 @@ function normalizeTrackWeight(weight) {
     MAX_TRACK_WEIGHT,
     Math.max(MIN_TRACK_WEIGHT, Math.round(weight))
   );
+}
+
+function normalizeHfoValue(value) {
+  const parsedValue = Number(value);
+  if (Number.isNaN(parsedValue)) {
+    return DEFAULT_HFO_VALUE;
+  }
+
+  const clampedValue = Math.min(
+    MAX_HFO_VALUE,
+    Math.max(MIN_HFO_VALUE, parsedValue)
+  );
+  return Math.round(clampedValue * 100) / 100;
 }
 
 function normalizePlaylistTypeFlags({ isInduction, isAwakener, isHfo }) {
@@ -111,7 +127,8 @@ function sanitizeSavedPlaylists(value) {
       loadedAt,
       isInduction: playlistType.isInduction,
       isAwakener: playlistType.isAwakener,
-      isHfo: playlistType.isHfo
+      isHfo: playlistType.isHfo,
+      hfoValue: normalizeHfoValue(playlist.hfoValue)
     };
   });
 
@@ -216,7 +233,8 @@ class AppStore {
       loadedAt: new Date().toISOString(),
       isInduction: false,
       isAwakener: false,
-      isHfo: false
+      isHfo: false,
+      hfoValue: DEFAULT_HFO_VALUE
     };
   }
 
@@ -311,6 +329,23 @@ class AppStore {
     playlist.isInduction = normalizedFlags.isInduction;
     playlist.isAwakener = normalizedFlags.isAwakener;
     playlist.isHfo = normalizedFlags.isHfo;
+
+    if (!playlist.isHfo) {
+      playlist.hfoValue = DEFAULT_HFO_VALUE;
+    } else {
+      playlist.hfoValue = normalizeHfoValue(playlist.hfoValue);
+    }
+
+    void this.persistPlaylistState();
+  }
+
+  setPlaylistHfoValue(playlistUuid, nextValue) {
+    const playlist = this.savedPlaylistsByUuid[playlistUuid];
+    if (!playlist) {
+      return;
+    }
+
+    playlist.hfoValue = normalizeHfoValue(nextValue);
     void this.persistPlaylistState();
   }
 
@@ -404,6 +439,7 @@ class AppStore {
         normalizedPlaylist.isInduction = existingFlags.isInduction;
         normalizedPlaylist.isAwakener = existingFlags.isAwakener;
         normalizedPlaylist.isHfo = existingFlags.isHfo;
+        normalizedPlaylist.hfoValue = normalizeHfoValue(existingPlaylist.hfoValue);
       }
 
       this.savedPlaylistsByUuid = {
