@@ -35,11 +35,50 @@ export default function Popup() {
         return;
       }
 
-      chrome.tabs.sendMessage(activeTab.id, { type: "randomiser:toggle" }, () => {
-        if (chrome.runtime.lastError) {
-          setError("Extension is not active on this site.");
-        }
-      });
+      const tryToggleModal = (hasRetried = false) => {
+        chrome.tabs.sendMessage(
+          activeTab.id,
+          { type: "randomiser:toggle" },
+          (response) => {
+            const lastErrorMessage = chrome.runtime.lastError?.message || "";
+            const isMissingReceiver = lastErrorMessage.includes(
+              "Receiving end does not exist"
+            );
+
+            if (isMissingReceiver && !hasRetried) {
+              chrome.scripting.executeScript(
+                {
+                  target: { tabId: activeTab.id },
+                  files: ["content.js"]
+                },
+                () => {
+                  if (chrome.runtime.lastError) {
+                    setError(
+                      chrome.runtime.lastError.message ||
+                        "Failed to inject extension script."
+                    );
+                    return;
+                  }
+
+                  tryToggleModal(true);
+                }
+              );
+              return;
+            }
+
+            if (lastErrorMessage) {
+              setError(lastErrorMessage);
+              return;
+            }
+
+            if (response?.ok === false) {
+              setError(response.error || "Failed to open Randomiser modal.");
+            }
+          }
+        );
+      };
+
+      tryToggleModal();
     });
   };
 
