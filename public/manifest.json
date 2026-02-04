@@ -7,7 +7,7 @@
     "default_title": "Randomiser",
     "default_popup": "src/popup/index.html"
   },
-  "permissions": ["tabs", "scripting"],
+  "permissions": ["tabs", "scripting", "storage"],
   "host_permissions": ["*://bambicloud.com/*", "*://*.bambicloud.com/*"],
   "content_scripts": [
     {

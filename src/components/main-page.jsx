@@ -1,6 +1,6 @@
 import { Box, Button, Typography } from "@mui/material";
 import { observer } from "mobx-react-lite";
-import React from "react";
+import React, { useEffect } from "react";
 import appStore from "../stores/app-store";
 
 function getCookieValue(cookieKey) {
@@ -18,6 +18,10 @@ function getCookieValue(cookieKey) {
 }
 
 const MainPage = observer(() => {
+  useEffect(() => {
+    void appStore.hydrateFromStorage();
+  }, []);
+
   const loadTokenFromCookie = () => {
     const token = getCookieValue("bambicloud_user");
     appStore.setUserToken(token || "Cookie not found");
@@ -41,6 +45,9 @@ const MainPage = observer(() => {
           justifyContent: "flex-end"
         }}
       >
+        <Button variant="outlined" onClick={() => appStore.resetUserToken()}>
+          Reset token
+        </Button>
         <Button variant="contained" onClick={loadTokenFromCookie}>
           Load token from cookie
         </Button>
