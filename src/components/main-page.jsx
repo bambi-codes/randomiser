@@ -1,7 +1,21 @@
-import { Box, Button, Typography } from "@mui/material";
+import {
+  Accordion,
+  AccordionDetails,
+  AccordionSummary,
+  Box,
+  Button,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogContentText,
+  DialogTitle,
+  Slider,
+  Typography
+} from "@mui/material";
 import { observer } from "mobx-react-lite";
-import React, { useEffect } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import appStore from "../stores/app-store";
+import { toJS } from "mobx";
 
 function tokenPreview(token) {
   if (!token) {
@@ -12,15 +26,46 @@ function tokenPreview(token) {
 }
 
 const MainPage = observer(() => {
+  const [playlistPendingDeleteUuid, setPlaylistPendingDeleteUuid] =
+    useState("");
+
   useEffect(() => {
     void appStore.hydrateFromStorage();
   }, []);
 
-  const activePlaylist = appStore.activePlaylist;
+  const pendingDeletePlaylist = useMemo(() => {
+    if (!playlistPendingDeleteUuid) {
+      return null;
+    }
+
+    return appStore.savedPlaylistsByUuid[playlistPendingDeleteUuid] || null;
+  }, [playlistPendingDeleteUuid, appStore.savedPlaylistsByUuid]);
+
+  const handleConfirmPlaylistDelete = () => {
+    if (playlistPendingDeleteUuid) {
+      appStore.removePlaylist(playlistPendingDeleteUuid);
+    }
+    setPlaylistPendingDeleteUuid("");
+  };
 
   return (
-    <Box sx={{ p: 2, minHeight: "100%", display: "flex", flexDirection: "column" }}>
+    <Box
+      sx={{
+        p: 2,
+        minHeight: "100%",
+        display: "flex",
+        flexDirection: "column",
+        zIndex: 10
+      }}
+    >
       <Box sx={{ display: "flex", flexDirection: "column", gap: 1, flex: 1 }}>
+        <button
+          onClick={() => {
+            console.log(toJS(appStore));
+          }}
+        >
+          log store
+        </button>
         <Typography>User token: {tokenPreview(appStore.userToken)}</Typography>
         <Typography>Saved playlists: {appStore.savedPlaylistCount}</Typography>
 
@@ -32,14 +77,106 @@ const MainPage = observer(() => {
           <Typography color="error">{appStore.playlistLoadError}</Typography>
         )}
 
-        {activePlaylist && (
-          <Box sx={{ mt: 1 }}>
-            <Typography>Active playlist: {activePlaylist.name}</Typography>
-            <Typography>UUID: {activePlaylist.uuid}</Typography>
-            <Typography>Tracks: {activePlaylist.tracks.length}</Typography>
-          </Box>
+        {appStore.savedPlaylistCount === 0 && (
+          <Typography sx={{ mt: 1 }}>No playlists loaded yet.</Typography>
         )}
+
+        {appStore.savedPlaylists.map((playlist) => (
+          <Accordion key={playlist.uuid} sx={{ mt: 1 }}>
+            <AccordionSummary>
+              <Box
+                sx={{
+                  width: "100%",
+                  display: "flex",
+                  justifyContent: "space-between",
+                  gap: 2
+                }}
+              >
+                <Typography>{playlist.name}</Typography>
+                <Typography color="text.secondary">
+                  Tracks: {playlist.tracks.length}
+                </Typography>
+              </Box>
+            </AccordionSummary>
+            <AccordionDetails>
+              <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                <Button
+                  color="error"
+                  variant="outlined"
+                  sx={{ alignSelf: "flex-start" }}
+                  onClick={() => setPlaylistPendingDeleteUuid(playlist.uuid)}
+                >
+                  Remove playlist
+                </Button>
+
+                {playlist.tracks.map((track) => (
+                  <Box
+                    key={track.uuid}
+                    sx={{ display: "flex", flexDirection: "column" }}
+                  >
+                    <Box
+                      sx={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "center",
+                        gap: 2
+                      }}
+                    >
+                      <Typography>{track.name}</Typography>
+                      <Typography color="text.secondary">
+                        {track.weight}
+                      </Typography>
+                    </Box>
+                    <Slider
+                      min={1}
+                      max={20}
+                      step={1}
+                      value={track.weight}
+                      valueLabelDisplay="auto"
+                      onChangeCommitted={(_event, value) => {
+                        if (typeof value === "number") {
+                          appStore.updateTrackWeight(
+                            playlist.uuid,
+                            track.uuid,
+                            value
+                          );
+                        }
+                      }}
+                    />
+                  </Box>
+                ))}
+              </Box>
+            </AccordionDetails>
+          </Accordion>
+        ))}
       </Box>
+
+      <Dialog
+        open={Boolean(pendingDeletePlaylist)}
+        onClose={() => setPlaylistPendingDeleteUuid("")}
+        disablePortal
+        sx={{ zIndex: 1000001 }}
+      >
+        <DialogTitle>Remove playlist?</DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            Remove "{pendingDeletePlaylist?.name}" and all its saved track
+            weights from this extension?
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setPlaylistPendingDeleteUuid("")}>
+            Cancel
+          </Button>
+          <Button
+            color="error"
+            variant="contained"
+            onClick={handleConfirmPlaylistDelete}
+          >
+            Remove
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       <Box
         sx={{
@@ -54,7 +191,10 @@ const MainPage = observer(() => {
         <Button variant="outlined" onClick={() => appStore.resetUserToken()}>
           Reset token
         </Button>
-        <Button variant="outlined" onClick={() => appStore.loadUserTokenFromCookie()}>
+        <Button
+          variant="outlined"
+          onClick={() => appStore.loadUserTokenFromCookie()}
+        >
           Load token from cookie
         </Button>
         <Button

@@ -1,10 +1,22 @@
-import { makeAutoObservable } from "mobx";
+import { makeAutoObservable, toJS } from "mobx";
 
 const USER_TOKEN_STORAGE_KEY = "randomiser_user_token";
 const SAVED_PLAYLISTS_STORAGE_KEY = "randomiser_saved_playlists_v1";
-const ACTIVE_PLAYLIST_UUID_STORAGE_KEY = "randomiser_active_playlist_uuid_v1";
 const PLAYLIST_PATH_REGEX =
   /^\/playlist\/([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})(?:\/|$)/;
+const MIN_TRACK_WEIGHT = 1;
+const MAX_TRACK_WEIGHT = 20;
+
+function normalizeTrackWeight(weight) {
+  if (typeof weight !== "number" || Number.isNaN(weight)) {
+    return MIN_TRACK_WEIGHT;
+  }
+
+  return Math.min(
+    MAX_TRACK_WEIGHT,
+    Math.max(MIN_TRACK_WEIGHT, Math.round(weight))
+  );
+}
 
 function sanitizeSavedPlaylists(value) {
   if (!value || typeof value !== "object") {
@@ -21,24 +33,48 @@ function sanitizeSavedPlaylists(value) {
 
     const name = typeof playlist.name === "string" ? playlist.name : "";
     const loadedAt =
-      typeof playlist.loadedAt === "string" ? playlist.loadedAt : new Date().toISOString();
-    const files = Array.isArray(playlist.tracks) ? playlist.tracks : [];
+      typeof playlist.loadedAt === "string"
+        ? playlist.loadedAt
+        : new Date().toISOString();
+    let files = [];
+    if (Array.isArray(playlist.tracks)) {
+      files = playlist.tracks;
+    } else if (playlist.tracks && typeof playlist.tracks === "object") {
+      files = Object.values(playlist.tracks);
+    }
 
     const tracks = files
       .map((track) => {
         if (!track || typeof track !== "object") {
+          console.warn("Skipping stored track: invalid track object");
           return null;
         }
 
-        if (typeof track.id !== "number" || typeof track.uuid !== "string") {
+        const parsedTrackId = Number(track.id);
+        const hasValidId =
+          Number.isFinite(parsedTrackId) &&
+          Number.isInteger(parsedTrackId) &&
+          parsedTrackId > 0;
+
+        if (!hasValidId) {
+          console.warn("Skipping stored track: invalid id", { id: track.id });
+          return null;
+        }
+
+        const trackUuid =
+          typeof track.uuid === "string" ? track.uuid.trim() : "";
+        if (!trackUuid) {
+          console.warn("Skipping stored track: missing uuid", {
+            id: parsedTrackId
+          });
           return null;
         }
 
         return {
-          id: track.id,
-          uuid: track.uuid,
+          id: parsedTrackId,
+          uuid: trackUuid,
           name: typeof track.name === "string" ? track.name : "Untitled track",
-          weight: typeof track.weight === "number" ? track.weight : 1.0
+          weight: normalizeTrackWeight(track.weight)
         };
       })
       .filter(Boolean);
@@ -52,7 +88,6 @@ function sanitizeSavedPlaylists(value) {
 class AppStore {
   userToken = "lalala";
   savedPlaylistsByUuid = {};
-  activePlaylistUuid = null;
   isLoadingPlaylist = false;
   playlistLoadError = "";
   hasHydrated = false;
@@ -61,12 +96,10 @@ class AppStore {
     makeAutoObservable(this, {}, { autoBind: true });
   }
 
-  get activePlaylist() {
-    if (!this.activePlaylistUuid) {
-      return null;
-    }
-
-    return this.savedPlaylistsByUuid[this.activePlaylistUuid] || null;
+  get savedPlaylists() {
+    return Object.values(this.savedPlaylistsByUuid).sort((a, b) =>
+      b.loadedAt.localeCompare(a.loadedAt)
+    );
   }
 
   get savedPlaylistCount() {
@@ -136,7 +169,7 @@ class AppStore {
         id: file.id,
         uuid: file.uuid,
         name: typeof file.name === "string" ? file.name : "Untitled track",
-        weight: 1.0
+        weight: MIN_TRACK_WEIGHT
       });
     });
 
@@ -155,16 +188,6 @@ class AppStore {
     this.playlistLoadError = "";
   }
 
-  setActivePlaylist(uuid) {
-    if (typeof uuid === "string" && this.savedPlaylistsByUuid[uuid]) {
-      this.activePlaylistUuid = uuid;
-    } else {
-      this.activePlaylistUuid = null;
-    }
-
-    void this.persistPlaylistState();
-  }
-
   async hydrateFromStorage() {
     if (this.hasHydrated) {
       return;
@@ -173,8 +196,7 @@ class AppStore {
     try {
       const result = await chrome.storage.local.get([
         USER_TOKEN_STORAGE_KEY,
-        SAVED_PLAYLISTS_STORAGE_KEY,
-        ACTIVE_PLAYLIST_UUID_STORAGE_KEY
+        SAVED_PLAYLISTS_STORAGE_KEY
       ]);
 
       const storedToken = result?.[USER_TOKEN_STORAGE_KEY];
@@ -185,13 +207,6 @@ class AppStore {
       this.savedPlaylistsByUuid = sanitizeSavedPlaylists(
         result?.[SAVED_PLAYLISTS_STORAGE_KEY]
       );
-
-      const storedActiveUuid = result?.[ACTIVE_PLAYLIST_UUID_STORAGE_KEY];
-      this.activePlaylistUuid =
-        typeof storedActiveUuid === "string" &&
-        this.savedPlaylistsByUuid[storedActiveUuid]
-          ? storedActiveUuid
-          : null;
     } catch (error) {
       console.error("Failed to hydrate user token:", error);
     } finally {
@@ -211,9 +226,9 @@ class AppStore {
 
   async persistPlaylistState() {
     try {
+      const payload = toJS(this.savedPlaylistsByUuid);
       await chrome.storage.local.set({
-        [SAVED_PLAYLISTS_STORAGE_KEY]: this.savedPlaylistsByUuid,
-        [ACTIVE_PLAYLIST_UUID_STORAGE_KEY]: this.activePlaylistUuid
+        [SAVED_PLAYLISTS_STORAGE_KEY]: payload
       });
     } catch (error) {
       console.error("Failed to persist playlists:", error);
@@ -229,6 +244,32 @@ class AppStore {
   resetUserToken() {
     this.userToken = "";
     void this.persistUserToken();
+  }
+
+  updateTrackWeight(playlistUuid, trackUuid, nextWeight) {
+    const playlist = this.savedPlaylistsByUuid[playlistUuid];
+    if (!playlist) {
+      return;
+    }
+
+    const track = playlist.tracks.find((item) => item.uuid === trackUuid);
+    if (!track) {
+      return;
+    }
+
+    track.weight = normalizeTrackWeight(nextWeight);
+    void this.persistPlaylistState();
+  }
+
+  removePlaylist(playlistUuid) {
+    if (!this.savedPlaylistsByUuid[playlistUuid]) {
+      return;
+    }
+
+    const nextPlaylists = { ...this.savedPlaylistsByUuid };
+    delete nextPlaylists[playlistUuid];
+    this.savedPlaylistsByUuid = nextPlaylists;
+    void this.persistPlaylistState();
   }
 
   async loadPlaylistFromCurrentUrl() {
@@ -247,7 +288,9 @@ class AppStore {
         return;
       }
 
-      const playlistUuid = this.extractPlaylistUuidFromLocation(window.location.href);
+      const playlistUuid = this.extractPlaylistUuidFromLocation(
+        window.location.href
+      );
       if (!playlistUuid) {
         this.playlistLoadError = "Open a bambicloud playlist URL first.";
         return;
@@ -265,7 +308,8 @@ class AppStore {
 
       if (!response.ok) {
         if (response.status === 401 || response.status === 403) {
-          this.playlistLoadError = "Authentication failed. Reload token and try again.";
+          this.playlistLoadError =
+            "Authentication failed. Reload token and try again.";
           return;
         }
 
@@ -285,11 +329,25 @@ class AppStore {
         return;
       }
 
+      const existingPlaylist =
+        this.savedPlaylistsByUuid[normalizedPlaylist.uuid];
+      if (existingPlaylist) {
+        const existingWeightsByTrackUuid = Object.fromEntries(
+          existingPlaylist.tracks.map((track) => [track.uuid, track.weight])
+        );
+
+        normalizedPlaylist.tracks = normalizedPlaylist.tracks.map((track) => ({
+          ...track,
+          weight: normalizeTrackWeight(
+            existingWeightsByTrackUuid[track.uuid] ?? MIN_TRACK_WEIGHT
+          )
+        }));
+      }
+
       this.savedPlaylistsByUuid = {
         ...this.savedPlaylistsByUuid,
         [normalizedPlaylist.uuid]: normalizedPlaylist
       };
-      this.activePlaylistUuid = normalizedPlaylist.uuid;
       await this.persistPlaylistState();
     } catch (error) {
       console.error("Failed to load playlist:", error);
