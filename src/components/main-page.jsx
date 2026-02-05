@@ -27,6 +27,25 @@ function tokenPreview(token) {
   return `${token.slice(0, 5)}...`;
 }
 
+function formatDuration(durationMilliseconds) {
+  if (!Number.isFinite(durationMilliseconds) || durationMilliseconds <= 0) {
+    return null;
+  }
+
+  const totalSeconds = Math.round(durationMilliseconds / 1000);
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  const paddedMinutes = hours > 0 ? String(minutes).padStart(2, "0") : minutes;
+  const paddedSeconds = String(seconds).padStart(2, "0");
+
+  if (hours > 0) {
+    return `${hours}:${paddedMinutes}:${paddedSeconds}`;
+  }
+
+  return `${paddedMinutes}:${paddedSeconds}`;
+}
+
 const MainPage = observer(() => {
   const [playlistPendingDeleteUuid, setPlaylistPendingDeleteUuid] =
     useState("");
@@ -288,7 +307,13 @@ const MainPage = observer(() => {
                     >
                       <Typography>{track.name}</Typography>
                       <Typography color="text.secondary">
-                        {track.weight}
+                        {formatDuration(track.durationMilliseconds) ??
+                          "Unknown duration"}{" "}
+                        ·{" "}
+                        {track.fileAuthor?.trim()
+                          ? track.fileAuthor.trim()
+                          : "unknown author"}{" "}
+                        · {track.weight}
                       </Typography>
                     </Box>
                     <Slider

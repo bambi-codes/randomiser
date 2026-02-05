@@ -317,12 +317,20 @@ function sanitizeSavedPlaylists(value) {
           return null;
         }
 
+        const fileAuthor =
+          typeof track.fileAuthor === "string"
+            ? track.fileAuthor
+            : typeof track.author?.username === "string"
+              ? track.author.username
+              : "";
+
         return {
           id: parsedTrackId,
           uuid: trackUuid,
           name: typeof track.name === "string" ? track.name : "Untitled track",
           weight: normalizeTrackWeight(track.weight),
-          durationMilliseconds: normalizeTrackDurationMilliseconds(track)
+          durationMilliseconds: normalizeTrackDurationMilliseconds(track),
+          fileAuthor
         };
       })
       .filter(Boolean);
@@ -430,7 +438,11 @@ class AppStore {
         uuid: file.uuid,
         name: typeof file.name === "string" ? file.name : "Untitled track",
         weight: MIN_TRACK_WEIGHT,
-        durationMilliseconds: normalizeTrackDurationMilliseconds(file)
+        durationMilliseconds: normalizeTrackDurationMilliseconds(file),
+        fileAuthor:
+          typeof file.author?.username === "string"
+            ? file.author.username
+            : ""
       });
     });
 
