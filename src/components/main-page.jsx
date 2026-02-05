@@ -17,6 +17,7 @@ import {
 import { observer } from "mobx-react-lite";
 import React, { useEffect, useMemo, useState } from "react";
 import appStore from "../stores/app-store";
+import { toJS } from "mobx";
 
 function tokenPreview(token) {
   if (!token) {
@@ -29,6 +30,7 @@ function tokenPreview(token) {
 const MainPage = observer(() => {
   const [playlistPendingDeleteUuid, setPlaylistPendingDeleteUuid] =
     useState("");
+  const [targetMinutes, setTargetMinutes] = useState(60);
 
   useEffect(() => {
     void appStore.hydrateFromStorage();
@@ -62,6 +64,85 @@ const MainPage = observer(() => {
       <Box sx={{ display: "flex", flexDirection: "column", gap: 1, flex: 1 }}>
         <Typography>User token: {tokenPreview(appStore.userToken)}</Typography>
         <Typography>Saved playlists: {appStore.savedPlaylistCount}</Typography>
+
+        <Box
+          sx={{
+            mt: 1,
+            p: 2,
+            borderRadius: 2,
+            border: "1px solid #e5e7eb",
+            display: "flex",
+            flexDirection: "column",
+            gap: 1
+          }}
+        >
+          <Box
+            sx={{
+              display: "flex",
+              alignItems: "center",
+              gap: 2,
+              flexWrap: "wrap"
+            }}
+          >
+            <Box sx={{ flex: 1, minWidth: 220 }}>
+              <Typography color="text.secondary">
+                Playlist length (minutes): {targetMinutes}
+              </Typography>
+              <Slider
+                min={30}
+                max={120}
+                step={1}
+                value={targetMinutes}
+                valueLabelDisplay="auto"
+                onChange={(_event, value) => {
+                  if (typeof value === "number") {
+                    setTargetMinutes(value);
+                    appStore.clearPlaylistCreateStatus();
+                  }
+                }}
+              />
+            </Box>
+            <Button
+              variant="contained"
+              onClick={() =>
+                void appStore.createRandomizedPlaylist(targetMinutes)
+              }
+              disabled={appStore.isCreatingPlaylist}
+            >
+              {appStore.isCreatingPlaylist ? "Creating..." : "Create playlist"}
+            </Button>
+          </Box>
+
+          {appStore.playlistCreateError && (
+            <Box
+              sx={{
+                p: 1.5,
+                borderRadius: 1,
+                border: "1px solid #fecaca",
+                backgroundColor: "#fee2e2"
+              }}
+            >
+              <Typography color="error">
+                {appStore.playlistCreateError}
+              </Typography>
+            </Box>
+          )}
+
+          {appStore.playlistCreateSuccess && (
+            <Box
+              sx={{
+                p: 1.5,
+                borderRadius: 1,
+                border: "1px solid #86efac",
+                backgroundColor: "#dcfce7"
+              }}
+            >
+              <Typography color="success.main">
+                {appStore.playlistCreateSuccess}
+              </Typography>
+            </Box>
+          )}
+        </Box>
 
         {appStore.isLoadingPlaylist && (
           <Typography>Loading playlist...</Typography>
@@ -271,6 +352,14 @@ const MainPage = observer(() => {
           justifyContent: "flex-end"
         }}
       >
+        <Button
+          variant="outlined"
+          onClick={() => {
+            console.log(toJS(appStore));
+          }}
+        >
+          log store
+        </Button>
         <Button variant="outlined" onClick={() => appStore.resetUserToken()}>
           Reset token
         </Button>
