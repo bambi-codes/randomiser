@@ -124,7 +124,7 @@ function isValidDurationMilliseconds(value) {
   return Number.isFinite(value) && value > 0;
 }
 
-function dedupeTracksById(tracks) {
+function dedupeTracksById(tracks, getWeight = (track) => track.weight) {
   const map = new Map();
 
   tracks.forEach((track) => {
@@ -157,13 +157,26 @@ function dedupeTracksById(tracks) {
 
     if (
       nextHasDuration === existingHasDuration &&
-      track.weight > existing.weight
+      getWeight(track) > getWeight(existing)
     ) {
       map.set(parsedId, track);
     }
   });
 
   return Array.from(map.values());
+}
+
+function getEffectiveWeight(track) {
+  if (!track || typeof track !== "object") {
+    return 0;
+  }
+
+  const weight = Number(track.effectiveWeight ?? track.weight);
+  if (Number.isNaN(weight) || weight <= 0) {
+    return 0;
+  }
+
+  return weight;
 }
 
 function collectTracksFromPlaylists(playlists) {
@@ -569,23 +582,23 @@ class AppStore {
     selectedTrackIds.add(awakenerTrack.id);
     totalMilliseconds += awakenerTrack.durationMilliseconds;
 
-    const includedPlaylists = candidatePlaylists.filter((playlist) => {
-      const inclusionChance = normalizeInclusionChance(
-        playlist.inclusionChance ?? DEFAULT_INCLUSION_CHANCE
-      );
-      return Math.random() <= inclusionChance;
-    });
-
-    const guaranteePlaylists = includedPlaylists.filter(
+    const guaranteePlaylists = candidatePlaylists.filter(
       (playlist) => playlist.guaranteeSingle
     );
-    const poolPlaylists = includedPlaylists.filter(
+    const poolPlaylists = candidatePlaylists.filter(
       (playlist) => !playlist.guaranteeSingle
     );
 
     const middleTracks = [];
     const shuffledGuarantees = shuffleArray(guaranteePlaylists);
     for (const playlist of shuffledGuarantees) {
+      const inclusionChance = normalizeInclusionChance(
+        playlist.inclusionChance ?? DEFAULT_INCLUSION_CHANCE
+      );
+      if (Math.random() > inclusionChance) {
+        continue;
+      }
+
       const guaranteeCandidates = dedupeTracksById(
         collectTracksFromPlaylists([playlist])
       )
@@ -621,8 +634,30 @@ class AppStore {
       };
     }
 
+    const poolTracks = [];
+    poolPlaylists.forEach((playlist) => {
+      const inclusionChance = normalizeInclusionChance(
+        playlist.inclusionChance ?? DEFAULT_INCLUSION_CHANCE
+      );
+      if (inclusionChance <= 0) {
+        return;
+      }
+
+      playlist.tracks.forEach((track) => {
+        if (!track || typeof track !== "object") {
+          return;
+        }
+
+        poolTracks.push({
+          ...track,
+          effectiveWeight: track.weight * inclusionChance
+        });
+      });
+    });
+
     let availableBaseTracks = dedupeTracksById(
-      collectTracksFromPlaylists(poolPlaylists)
+      poolTracks,
+      (track) => getEffectiveWeight(track)
     )
       .filter((track) => !selectedTrackIds.has(track.id))
       .filter((track) =>
@@ -645,7 +680,9 @@ class AppStore {
         break;
       }
 
-      const nextTrack = pickWeightedItem(candidates, (track) => track.weight);
+      const nextTrack = pickWeightedItem(candidates, (track) =>
+        getEffectiveWeight(track)
+      );
       if (!nextTrack) {
         break;
       }
