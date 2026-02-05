@@ -4,6 +4,7 @@ import {
   AccordionSummary,
   Box,
   Button,
+  Checkbox,
   Dialog,
   DialogActions,
   DialogContent,
@@ -188,11 +189,19 @@ const MainPage = observer(() => {
               >
                 <Typography>{playlist.name}</Typography>
                 <Box sx={{ display: "flex", gap: 2 }}>
-                  {playlist.isHfo && (
+                  {!playlist.isInduction && !playlist.isAwakener && (
                     <Typography color="text.secondary">
-                      HFO: {Math.round((playlist.hfoValue ?? 0.5) * 100)}%
+                      Inclusion:{" "}
+                      {Math.round((playlist.inclusionChance ?? 1) * 100)}%
                     </Typography>
                   )}
+                  {!playlist.isInduction &&
+                    !playlist.isAwakener &&
+                    playlist.guaranteeSingle && (
+                      <Typography color="text.secondary">
+                        Guaranteed
+                      </Typography>
+                    )}
                   <Typography color="text.secondary">
                     Tracks: {playlist.tracks.length}
                   </Typography>
@@ -225,8 +234,7 @@ const MainPage = observer(() => {
                           onChange={(_event, checked) => {
                             appStore.setPlaylistTypeFlags(playlist.uuid, {
                               isInduction: checked,
-                              isAwakener: false,
-                              isHfo: false
+                              isAwakener: false
                             });
                           }}
                         />
@@ -240,54 +248,55 @@ const MainPage = observer(() => {
                           onChange={(_event, checked) => {
                             appStore.setPlaylistTypeFlags(playlist.uuid, {
                               isInduction: false,
-                              isAwakener: checked,
-                              isHfo: false
+                              isAwakener: checked
                             });
                           }}
                         />
                       }
                       label="Awakener"
                     />
-                    <FormControlLabel
-                      control={
-                        <Switch
-                          checked={Boolean(playlist.isHfo)}
-                          onChange={(_event, checked) => {
-                            appStore.setPlaylistTypeFlags(playlist.uuid, {
-                              isInduction: false,
-                              isAwakener: false,
-                              isHfo: checked
-                            });
-                          }}
-                        />
-                      }
-                      label="HFO"
-                    />
                   </Box>
                 </Box>
 
-                {playlist.isHfo && (
+                {!playlist.isInduction && !playlist.isAwakener && (
                   <Box
                     sx={{ display: "flex", flexDirection: "column", gap: 1 }}
                   >
                     <Typography color="text.secondary">
-                      HFO percentage inclusion:{" "}
-                      {Math.round((playlist.hfoValue ?? 0.5) * 100)}%
+                      Inclusion chance:{" "}
+                      {Math.round((playlist.inclusionChance ?? 1) * 100)}%
                     </Typography>
                     <Slider
                       min={0}
                       max={1}
                       step={0.01}
-                      value={playlist.hfoValue ?? 0.5}
+                      value={playlist.inclusionChance ?? 1}
                       valueLabelDisplay="auto"
                       valueLabelFormat={(value) =>
                         `${Math.round(value * 100)}%`
                       }
                       onChangeCommitted={(_event, value) => {
                         if (typeof value === "number") {
-                          appStore.setPlaylistHfoValue(playlist.uuid, value);
+                          appStore.setPlaylistInclusionChance(
+                            playlist.uuid,
+                            value
+                          );
                         }
                       }}
+                    />
+                    <FormControlLabel
+                      control={
+                        <Checkbox
+                          checked={Boolean(playlist.guaranteeSingle)}
+                          onChange={(_event, checked) => {
+                            appStore.setPlaylistGuaranteeSingle(
+                              playlist.uuid,
+                              checked
+                            );
+                          }}
+                        />
+                      }
+                      label="Guarantee only one file from this playlist"
                     />
                   </Box>
                 )}

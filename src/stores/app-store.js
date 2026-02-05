@@ -6,9 +6,9 @@ const PLAYLIST_PATH_REGEX =
   /^\/playlist\/([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})(?:\/|$)/;
 const MIN_TRACK_WEIGHT = 1;
 const MAX_TRACK_WEIGHT = 20;
-const DEFAULT_HFO_VALUE = 0.5;
-const MIN_HFO_VALUE = 0;
-const MAX_HFO_VALUE = 1;
+const DEFAULT_INCLUSION_CHANCE = 1;
+const MIN_INCLUSION_CHANCE = 0;
+const MAX_INCLUSION_CHANCE = 1;
 const MIN_PLAYLIST_MINUTES = 30;
 const MAX_PLAYLIST_MINUTES = 120;
 const DEFAULT_PLAYLIST_MINUTES = 60;
@@ -30,15 +30,15 @@ function normalizeTrackWeight(weight) {
   );
 }
 
-function normalizeHfoValue(value) {
+function normalizeInclusionChance(value) {
   const parsedValue = Number(value);
   if (Number.isNaN(parsedValue)) {
-    return DEFAULT_HFO_VALUE;
+    return DEFAULT_INCLUSION_CHANCE;
   }
 
   const clampedValue = Math.min(
-    MAX_HFO_VALUE,
-    Math.max(MIN_HFO_VALUE, parsedValue)
+    MAX_INCLUSION_CHANCE,
+    Math.max(MIN_INCLUSION_CHANCE, parsedValue)
   );
   return Math.round(clampedValue * 100) / 100;
 }
@@ -240,24 +240,19 @@ async function readResponseErrorMessage(response, fallbackMessage) {
   return `Request failed (HTTP ${response.status}).`;
 }
 
-function normalizePlaylistTypeFlags({ isInduction, isAwakener, isHfo }) {
+function normalizePlaylistTypeFlags({ isInduction, isAwakener }) {
   const normalizedIsInduction = Boolean(isInduction);
   const normalizedIsAwakener = Boolean(isAwakener);
-  const normalizedIsHfo = Boolean(isHfo);
 
   if (normalizedIsInduction) {
-    return { isInduction: true, isAwakener: false, isHfo: false };
+    return { isInduction: true, isAwakener: false };
   }
 
   if (normalizedIsAwakener) {
-    return { isInduction: false, isAwakener: true, isHfo: false };
+    return { isInduction: false, isAwakener: true };
   }
 
-  if (normalizedIsHfo) {
-    return { isInduction: false, isAwakener: false, isHfo: true };
-  }
-
-  return { isInduction: false, isAwakener: false, isHfo: false };
+  return { isInduction: false, isAwakener: false };
 }
 
 function sanitizeSavedPlaylists(value) {
@@ -280,9 +275,16 @@ function sanitizeSavedPlaylists(value) {
         : new Date().toISOString();
     const playlistType = normalizePlaylistTypeFlags({
       isInduction: playlist.isInduction,
-      isAwakener: playlist.isAwakener,
-      isHfo: playlist.isHfo
+      isAwakener: playlist.isAwakener
     });
+    const inclusionChance = normalizeInclusionChance(
+      playlist.inclusionChance ??
+        (playlist.isHfo ? playlist.hfoValue : DEFAULT_INCLUSION_CHANCE)
+    );
+    const guaranteeSingle =
+      typeof playlist.guaranteeSingle === "boolean"
+        ? playlist.guaranteeSingle
+        : Boolean(playlist.isHfo);
     let files = [];
     if (Array.isArray(playlist.tracks)) {
       files = playlist.tracks;
@@ -342,8 +344,8 @@ function sanitizeSavedPlaylists(value) {
       loadedAt,
       isInduction: playlistType.isInduction,
       isAwakener: playlistType.isAwakener,
-      isHfo: playlistType.isHfo,
-      hfoValue: normalizeHfoValue(playlist.hfoValue)
+      inclusionChance,
+      guaranteeSingle
     };
   });
 
@@ -456,8 +458,8 @@ class AppStore {
       loadedAt: new Date().toISOString(),
       isInduction: false,
       isAwakener: false,
-      isHfo: false,
-      hfoValue: DEFAULT_HFO_VALUE
+      inclusionChance: DEFAULT_INCLUSION_CHANCE,
+      guaranteeSingle: false
     };
   }
 
@@ -482,6 +484,9 @@ class AppStore {
     );
     const awakenerPlaylists = playlists.filter(
       (playlist) => playlist.isAwakener
+    );
+    const candidatePlaylists = playlists.filter(
+      (playlist) => !playlist.isInduction && !playlist.isAwakener
     );
 
     const inductionTracks = dedupeTracksById(
@@ -564,17 +569,24 @@ class AppStore {
     selectedTrackIds.add(awakenerTrack.id);
     totalMilliseconds += awakenerTrack.durationMilliseconds;
 
-    const hfoTracks = [];
-    const hfoPlaylists = playlists.filter((playlist) => playlist.isHfo);
-    hfoPlaylists.forEach((playlist) => {
-      const inclusionChance = normalizeHfoValue(
-        playlist.hfoValue ?? DEFAULT_HFO_VALUE
+    const includedPlaylists = candidatePlaylists.filter((playlist) => {
+      const inclusionChance = normalizeInclusionChance(
+        playlist.inclusionChance ?? DEFAULT_INCLUSION_CHANCE
       );
-      if (Math.random() > inclusionChance) {
-        return;
-      }
+      return Math.random() <= inclusionChance;
+    });
 
-      const hfoCandidates = dedupeTracksById(
+    const guaranteePlaylists = includedPlaylists.filter(
+      (playlist) => playlist.guaranteeSingle
+    );
+    const poolPlaylists = includedPlaylists.filter(
+      (playlist) => !playlist.guaranteeSingle
+    );
+
+    const middleTracks = [];
+    const shuffledGuarantees = shuffleArray(guaranteePlaylists);
+    for (const playlist of shuffledGuarantees) {
+      const guaranteeCandidates = dedupeTracksById(
         collectTracksFromPlaylists([playlist])
       )
         .filter((track) => !selectedTrackIds.has(track.id))
@@ -587,15 +599,21 @@ class AppStore {
             maxTotalMilliseconds
         );
 
-      const hfoTrack = pickWeightedItem(hfoCandidates, (track) => track.weight);
-      if (!hfoTrack) {
-        return;
+      const guaranteedTrack = pickWeightedItem(
+        guaranteeCandidates,
+        (track) => track.weight
+      );
+
+      if (!guaranteedTrack) {
+        return {
+          error: `Guaranteed playlist "${playlist.name}" has no track that fits the remaining length.`
+        };
       }
 
-      selectedTrackIds.add(hfoTrack.id);
-      hfoTracks.push(hfoTrack);
-      totalMilliseconds += hfoTrack.durationMilliseconds;
-    });
+      selectedTrackIds.add(guaranteedTrack.id);
+      middleTracks.push(guaranteedTrack);
+      totalMilliseconds += guaranteedTrack.durationMilliseconds;
+    }
 
     if (totalMilliseconds > maxTotalMilliseconds) {
       return {
@@ -603,19 +621,14 @@ class AppStore {
       };
     }
 
-    const basePlaylists = playlists.filter(
-      (playlist) =>
-        !playlist.isInduction && !playlist.isAwakener && !playlist.isHfo
-    );
     let availableBaseTracks = dedupeTracksById(
-      collectTracksFromPlaylists(basePlaylists)
+      collectTracksFromPlaylists(poolPlaylists)
     )
       .filter((track) => !selectedTrackIds.has(track.id))
       .filter((track) =>
         isValidDurationMilliseconds(track.durationMilliseconds)
       );
 
-    const middleTracks = [];
     while (totalMilliseconds < targetMilliseconds) {
       const remainingMilliseconds = targetMilliseconds - totalMilliseconds;
       const maxAllowedTotal =
@@ -645,7 +658,7 @@ class AppStore {
       );
     }
 
-    const shuffledMiddle = shuffleArray([...middleTracks, ...hfoTracks]);
+    const shuffledMiddle = shuffleArray(middleTracks);
     const orderedTracks = [inductionTrack, ...shuffledMiddle, awakenerTrack];
 
     return {
@@ -825,7 +838,7 @@ class AppStore {
     void this.persistPlaylistState();
   }
 
-  setPlaylistTypeFlags(playlistUuid, { isInduction, isAwakener, isHfo }) {
+  setPlaylistTypeFlags(playlistUuid, { isInduction, isAwakener }) {
     const playlist = this.savedPlaylistsByUuid[playlistUuid];
     if (!playlist) {
       return;
@@ -833,29 +846,31 @@ class AppStore {
 
     const normalizedFlags = normalizePlaylistTypeFlags({
       isInduction,
-      isAwakener,
-      isHfo
+      isAwakener
     });
     playlist.isInduction = normalizedFlags.isInduction;
     playlist.isAwakener = normalizedFlags.isAwakener;
-    playlist.isHfo = normalizedFlags.isHfo;
-
-    if (!playlist.isHfo) {
-      playlist.hfoValue = DEFAULT_HFO_VALUE;
-    } else {
-      playlist.hfoValue = normalizeHfoValue(playlist.hfoValue);
-    }
 
     void this.persistPlaylistState();
   }
 
-  setPlaylistHfoValue(playlistUuid, nextValue) {
+  setPlaylistInclusionChance(playlistUuid, nextValue) {
     const playlist = this.savedPlaylistsByUuid[playlistUuid];
     if (!playlist) {
       return;
     }
 
-    playlist.hfoValue = normalizeHfoValue(nextValue);
+    playlist.inclusionChance = normalizeInclusionChance(nextValue);
+    void this.persistPlaylistState();
+  }
+
+  setPlaylistGuaranteeSingle(playlistUuid, nextValue) {
+    const playlist = this.savedPlaylistsByUuid[playlistUuid];
+    if (!playlist) {
+      return;
+    }
+
+    playlist.guaranteeSingle = Boolean(nextValue);
     void this.persistPlaylistState();
   }
 
@@ -943,14 +958,15 @@ class AppStore {
 
         const existingFlags = normalizePlaylistTypeFlags({
           isInduction: existingPlaylist.isInduction,
-          isAwakener: existingPlaylist.isAwakener,
-          isHfo: existingPlaylist.isHfo
+          isAwakener: existingPlaylist.isAwakener
         });
         normalizedPlaylist.isInduction = existingFlags.isInduction;
         normalizedPlaylist.isAwakener = existingFlags.isAwakener;
-        normalizedPlaylist.isHfo = existingFlags.isHfo;
-        normalizedPlaylist.hfoValue = normalizeHfoValue(
-          existingPlaylist.hfoValue
+        normalizedPlaylist.inclusionChance = normalizeInclusionChance(
+          existingPlaylist.inclusionChance
+        );
+        normalizedPlaylist.guaranteeSingle = Boolean(
+          existingPlaylist.guaranteeSingle
         );
       }
 
